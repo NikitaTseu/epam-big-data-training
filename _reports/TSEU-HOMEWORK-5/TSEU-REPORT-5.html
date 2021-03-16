@@ -1,0 +1,426 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TSEU-REPORT-5</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+</head>
+
+<body class="stackedit">
+  <div class="stackedit__html"><h2 id="tseu-nikita">TSEU NIKITA</h2>
+<p><strong>201 Big Data Mentoring Program Global 2021</strong><br>
+<strong><em>Homework 5</em></strong> – Hive</p>
+<h3 id="part-1---preparations">Part 1 - Preparations</h3>
+<p>For this task we will use <strong>expedia dataset</strong> and <strong>hotels dataset</strong>.</p>
+<p>The <strong>expedia dataset</strong> contains information about hotel visits (stored as avro files on HDFS), and the <strong>hotels dataset</strong> is the joined hotel/weather dataset from the previous homework stored in Kafka topic.</p>
+<p>So now lets perform some preparations to simplify the work ahead.<br>
+First of all we need to store our data in some Hive tables.</p>
+<pre class=" language-sql"><code class="prism  language-sql"><span class="token keyword">CREATE</span> EXTERNAL <span class="token keyword">TABLE</span> hotels_from_kafka 
+		<span class="token punctuation">(</span>avgTemperatureF <span class="token keyword">double</span><span class="token punctuation">,</span> avgTemperatureC <span class="token keyword">double</span><span class="token punctuation">,</span> id string<span class="token punctuation">,</span> 
+		name string<span class="token punctuation">,</span> country string<span class="token punctuation">,</span> city string<span class="token punctuation">,</span> latitude string<span class="token punctuation">,</span> 
+		longitude string<span class="token punctuation">,</span> geohash string<span class="token punctuation">,</span> <span class="token punctuation">`</span><span class="token keyword">date</span><span class="token punctuation">`</span> string<span class="token punctuation">)</span> 
+	STORED <span class="token keyword">BY</span> 
+		<span class="token string">'org.apache.hadoop.hive.kafka.KafkaStorageHandler'</span> 
+	TBLPROPERTIES <span class="token punctuation">(</span>
+		<span class="token string">"kafka.topic"</span><span class="token operator">=</span><span class="token string">"hotels-with-weather"</span><span class="token punctuation">,</span> 
+		<span class="token string">"kafka.bootstrap.servers"</span><span class="token operator">=</span><span class="token string">"localhost:9092"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<pre class=" language-sql"><code class="prism  language-sql"><span class="token keyword">CREATE</span> EXTERNAL <span class="token keyword">TABLE</span> visits_from_hdfs 
+	<span class="token keyword">ROW</span> FORMAT SERDE 
+		<span class="token string">'org.apache.hadoop.hive.serde2.avro.AvroSerDe'</span> 
+	STORED <span class="token keyword">AS</span> 
+	INPUTFORMAT 
+		<span class="token string">'org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat'</span> 
+	OUTPUTFORMAT 
+		<span class="token string">'org.apache.hadoop.hive.ql.io.avro.AvroContainerOutputFormat'</span> 
+	LOCATION 
+		<span class="token string">'/datasets/expedia'</span> 
+	TBLPROPERTIES <span class="token punctuation">(</span>
+		<span class="token string">'avro.schema.url'</span><span class="token operator">=</span><span class="token string">'/datasets/expedia_schema.avsc'</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<p>Lets take a look at resulting tables structure using hive command <code>describe</code>:</p>
+<pre class=" language-sql"><code class="prism  language-sql">avgtemperaturef         	<span class="token keyword">double</span>
+avgtemperaturec         	<span class="token keyword">double</span> 
+id                      	string
+name                    	string
+country                 	string
+city                    	string
+latitude                	string
+longitude               	string
+geohash                 	string
+<span class="token keyword">date</span>                    	string
+__key                   	<span class="token keyword">binary</span> 
+__partition             	<span class="token keyword">int</span>    
+__offset                	<span class="token keyword">bigint</span>
+__timestamp             	<span class="token keyword">bigint</span>
+</code></pre>
+<pre class=" language-sql"><code class="prism  language-sql">id                      	<span class="token keyword">bigint</span>
+date_time               	string
+site_name               	<span class="token keyword">int</span>
+posa_continent          	<span class="token keyword">int</span>
+user_location_country   	<span class="token keyword">int</span>
+user_location_region    	<span class="token keyword">int</span>
+user_location_city      	<span class="token keyword">int</span>
+orig_destination_distance   <span class="token keyword">double</span>
+user_id                 	<span class="token keyword">int</span>
+is_mobile               	<span class="token keyword">int</span>
+is_package              	<span class="token keyword">int</span>
+channel                 	<span class="token keyword">int</span>
+srch_ci                 	string
+srch_co                 	string
+srch_adults_cnt         	<span class="token keyword">int</span>
+srch_children_cnt       	<span class="token keyword">int</span>
+srch_rm_cnt             	<span class="token keyword">int</span>
+srch_destination_id     	<span class="token keyword">int</span>
+srch_destination_type_id    <span class="token keyword">int</span>
+hotel_id                	<span class="token keyword">bigint</span>
+</code></pre>
+<p><br>This format isn’t very convenient for the further work, so some additional transformations are required.</p>
+<ul>
+<li>For <strong>hotels</strong> we will create a new table partitioned by year and month with separate columns for day/month/year.</li>
+</ul>
+<pre class=" language-sql"><code class="prism  language-sql"><span class="token keyword">CREATE</span> EXTERNAL <span class="token keyword">TABLE</span> hotels <span class="token punctuation">(</span>
+		id string<span class="token punctuation">,</span> name string<span class="token punctuation">,</span> country string<span class="token punctuation">,</span> city string<span class="token punctuation">,</span> lat string<span class="token punctuation">,</span> lng string<span class="token punctuation">,</span> 
+		geohash string<span class="token punctuation">,</span> date_full string<span class="token punctuation">,</span> date_day <span class="token keyword">int</span><span class="token punctuation">,</span> tmpr_f <span class="token keyword">double</span><span class="token punctuation">,</span> tmpr_c <span class="token keyword">double</span><span class="token punctuation">)</span>
+	PARTITIONED <span class="token keyword">BY</span> 
+		<span class="token punctuation">(</span>date_year <span class="token keyword">int</span><span class="token punctuation">,</span> date_month <span class="token keyword">int</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<pre class=" language-sql"><code class="prism  language-sql"><span class="token keyword">INSERT</span> <span class="token keyword">INTO</span> <span class="token keyword">TABLE</span> hotels 
+	<span class="token keyword">PARTITION</span> <span class="token punctuation">(</span>
+		date_year<span class="token punctuation">,</span> date_month<span class="token punctuation">)</span>
+	<span class="token keyword">SELECT</span> 
+		id<span class="token punctuation">,</span> name<span class="token punctuation">,</span> country<span class="token punctuation">,</span> city<span class="token punctuation">,</span> latitude<span class="token punctuation">,</span> longitude<span class="token punctuation">,</span> geohash<span class="token punctuation">,</span> <span class="token punctuation">`</span><span class="token keyword">date</span><span class="token punctuation">`</span><span class="token punctuation">,</span> 
+		day<span class="token punctuation">(</span><span class="token punctuation">`</span><span class="token keyword">date</span><span class="token punctuation">`</span><span class="token punctuation">)</span><span class="token punctuation">,</span> avgtemperaturef<span class="token punctuation">,</span> avgtemperaturec<span class="token punctuation">,</span> year<span class="token punctuation">(</span><span class="token punctuation">`</span><span class="token keyword">date</span><span class="token punctuation">`</span><span class="token punctuation">)</span><span class="token punctuation">,</span> month<span class="token punctuation">(</span><span class="token punctuation">`</span><span class="token keyword">date</span><span class="token punctuation">`</span><span class="token punctuation">)</span> 
+	<span class="token keyword">FROM</span> 
+		hotels_from_kafka<span class="token punctuation">;</span> 
+</code></pre>
+<ul>
+<li>For <strong>visits</strong> we will create a new table with separate columns for check-in and check-out day/month/year and partitioning by user request submit year/month. Actually, I think that any partitioning will not be very useful for our specific requests, but the idea to divide visits by request submit year/month looks good in general so I just decided to train. <br><br><strong>!</strong> The weird thing about this dataset is that some records in it have check-in date later then check-out date. In such cases I swapped this dates in order to get only correct records.</li>
+</ul>
+<pre class=" language-sql"><code class="prism  language-sql"><span class="token keyword">CREATE</span> EXTERNAL <span class="token keyword">TABLE</span> visits <span class="token punctuation">(</span>
+		id <span class="token keyword">bigint</span><span class="token punctuation">,</span> date_time string<span class="token punctuation">,</span> site_name <span class="token keyword">int</span><span class="token punctuation">,</span> posa_continent <span class="token keyword">int</span><span class="token punctuation">,</span> 
+		user_location_country <span class="token keyword">int</span><span class="token punctuation">,</span> user_location_region <span class="token keyword">int</span><span class="token punctuation">,</span> user_location_city <span class="token keyword">int</span><span class="token punctuation">,</span> 
+		orig_destination_distance <span class="token keyword">double</span><span class="token punctuation">,</span> user_id <span class="token keyword">int</span><span class="token punctuation">,</span> is_mobile <span class="token keyword">int</span><span class="token punctuation">,</span> is_package <span class="token keyword">int</span><span class="token punctuation">,</span> 
+		channel <span class="token keyword">int</span><span class="token punctuation">,</span> srch_ci string<span class="token punctuation">,</span> srch_co string<span class="token punctuation">,</span> srch_adults_cnt <span class="token keyword">int</span><span class="token punctuation">,</span> srch_children_cnt <span class="token keyword">int</span><span class="token punctuation">,</span> 
+		srch_rm_cnt <span class="token keyword">int</span><span class="token punctuation">,</span> srch_destination_id <span class="token keyword">int</span><span class="token punctuation">,</span> srch_destination_type_id <span class="token keyword">int</span><span class="token punctuation">,</span> hotel_id <span class="token keyword">bigint</span><span class="token punctuation">,</span>
+		year_in <span class="token keyword">int</span><span class="token punctuation">,</span> month_in <span class="token keyword">int</span><span class="token punctuation">,</span> day_in <span class="token keyword">int</span><span class="token punctuation">,</span> year_out <span class="token keyword">int</span><span class="token punctuation">,</span> month_out <span class="token keyword">int</span><span class="token punctuation">,</span> day_out <span class="token keyword">int</span><span class="token punctuation">)</span>
+	PARTITIONED <span class="token keyword">BY</span> 
+		<span class="token punctuation">(</span>sbm_year <span class="token keyword">int</span><span class="token punctuation">,</span> sbm_month <span class="token keyword">int</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<pre class=" language-sql"><code class="prism  language-sql"><span class="token keyword">INSERT</span> <span class="token keyword">INTO</span> <span class="token keyword">TABLE</span> visits 
+	<span class="token keyword">PARTITION</span> <span class="token punctuation">(</span>
+		sbm_year<span class="token punctuation">,</span> sbm_month
+	<span class="token punctuation">)</span>
+	<span class="token keyword">SELECT</span> 
+		id<span class="token punctuation">,</span> date_time<span class="token punctuation">,</span> site_name<span class="token punctuation">,</span> posa_continent<span class="token punctuation">,</span> user_location_region<span class="token punctuation">,</span>
+		user_location_country<span class="token punctuation">,</span> user_location_city<span class="token punctuation">,</span> orig_destination_distance<span class="token punctuation">,</span> 
+		user_id<span class="token punctuation">,</span> is_mobile<span class="token punctuation">,</span> is_package<span class="token punctuation">,</span> channel<span class="token punctuation">,</span> srch_ci<span class="token punctuation">,</span> srch_co<span class="token punctuation">,</span>
+		srch_adults_cnt<span class="token punctuation">,</span> srch_children_cnt<span class="token punctuation">,</span> srch_rm_cnt<span class="token punctuation">,</span> srch_destination_id<span class="token punctuation">,</span> 
+		srch_destination_type_id<span class="token punctuation">,</span> hotel_id<span class="token punctuation">,</span> year<span class="token punctuation">(</span>srch_ci<span class="token punctuation">)</span><span class="token punctuation">,</span> month<span class="token punctuation">(</span>srch_ci<span class="token punctuation">)</span><span class="token punctuation">,</span>
+		day<span class="token punctuation">(</span>srch_ci<span class="token punctuation">)</span><span class="token punctuation">,</span> year<span class="token punctuation">(</span>srch_co<span class="token punctuation">)</span><span class="token punctuation">,</span> month<span class="token punctuation">(</span>srch_co<span class="token punctuation">)</span><span class="token punctuation">,</span> day<span class="token punctuation">(</span>srch_co<span class="token punctuation">)</span><span class="token punctuation">,</span> 
+		year<span class="token punctuation">(</span>date_time<span class="token punctuation">)</span><span class="token punctuation">,</span> month<span class="token punctuation">(</span>date_time<span class="token punctuation">)</span> 
+	<span class="token keyword">FROM</span> 
+		visits_from_hdfs
+	<span class="token keyword">WHERE</span> 
+		srch_ci <span class="token operator">&lt;</span> srch_co<span class="token punctuation">;</span>
+
+<span class="token keyword">INSERT</span> <span class="token keyword">INTO</span> <span class="token keyword">TABLE</span> visits 
+	<span class="token keyword">PARTITION</span> <span class="token punctuation">(</span>
+		sbm_year<span class="token punctuation">,</span> sbm_month
+	<span class="token punctuation">)</span>
+	<span class="token keyword">SELECT</span> 
+		id<span class="token punctuation">,</span> date_time<span class="token punctuation">,</span> site_name<span class="token punctuation">,</span> posa_continent<span class="token punctuation">,</span> user_location_region<span class="token punctuation">,</span>
+		user_location_country<span class="token punctuation">,</span> user_location_city<span class="token punctuation">,</span> orig_destination_distance<span class="token punctuation">,</span> 
+		user_id<span class="token punctuation">,</span> is_mobile<span class="token punctuation">,</span> is_package<span class="token punctuation">,</span> channel<span class="token punctuation">,</span> srch_co<span class="token punctuation">,</span> srch_ci<span class="token punctuation">,</span>
+		srch_adults_cnt<span class="token punctuation">,</span> srch_children_cnt<span class="token punctuation">,</span> srch_rm_cnt<span class="token punctuation">,</span> srch_destination_id<span class="token punctuation">,</span> 
+		srch_destination_type_id<span class="token punctuation">,</span> hotel_id<span class="token punctuation">,</span> year<span class="token punctuation">(</span>srch_co<span class="token punctuation">)</span><span class="token punctuation">,</span> month<span class="token punctuation">(</span>srch_co<span class="token punctuation">)</span><span class="token punctuation">,</span>
+		day<span class="token punctuation">(</span>srch_co<span class="token punctuation">)</span><span class="token punctuation">,</span> year<span class="token punctuation">(</span>srch_ci<span class="token punctuation">)</span><span class="token punctuation">,</span> month<span class="token punctuation">(</span>srch_ci<span class="token punctuation">)</span><span class="token punctuation">,</span> day<span class="token punctuation">(</span>srch_ci<span class="token punctuation">)</span><span class="token punctuation">,</span> 
+		year<span class="token punctuation">(</span>date_time<span class="token punctuation">)</span><span class="token punctuation">,</span> month<span class="token punctuation">(</span>date_time<span class="token punctuation">)</span> 
+	<span class="token keyword">FROM</span> 
+		visits_from_hdfs
+	<span class="token keyword">WHERE</span> 
+		srch_ci <span class="token operator">&gt;</span> srch_co<span class="token punctuation">;</span>
+</code></pre>
+<ul>
+<li>Also it will be very useful to create a separate table with the <strong>date dimension</strong>, which will contain something like a calendar with any information we want to know about the date/time.</li>
+</ul>
+<pre class=" language-sql"><code class="prism  language-sql"><span class="token keyword">set</span> hivevar:start_day<span class="token operator">=</span><span class="token number">2016</span><span class="token operator">-</span><span class="token number">01</span><span class="token operator">-</span><span class="token number">01</span><span class="token punctuation">;</span>
+<span class="token keyword">set</span> hivevar:end_day<span class="token operator">=</span><span class="token number">2018</span><span class="token operator">-</span><span class="token number">12</span><span class="token operator">-</span><span class="token number">31</span><span class="token punctuation">;</span>
+ 
+<span class="token keyword">create</span> <span class="token keyword">table</span> <span class="token keyword">if</span> <span class="token operator">not</span> <span class="token keyword">exists</span> date_dim <span class="token keyword">as</span>
+<span class="token keyword">with</span> dates <span class="token keyword">as</span> <span class="token punctuation">(</span>
+	<span class="token keyword">select</span> 
+		date_add<span class="token punctuation">(</span><span class="token string">"${start_day}"</span><span class="token punctuation">,</span> arr<span class="token punctuation">.</span>pos<span class="token punctuation">)</span> <span class="token keyword">as</span> base_date
+	<span class="token keyword">from</span> <span class="token punctuation">(</span><span class="token keyword">select</span> posexplode<span class="token punctuation">(</span>
+		split<span class="token punctuation">(</span>repeat<span class="token punctuation">(</span><span class="token string">"x"</span><span class="token punctuation">,</span> datediff<span class="token punctuation">(</span><span class="token string">"${end_day}"</span><span class="token punctuation">,</span> <span class="token string">"${start_day}"</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">,</span> <span class="token string">"x"</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span> arr
+<span class="token punctuation">)</span>
+<span class="token keyword">select</span>
+    base_date <span class="token keyword">as</span> base_date<span class="token punctuation">,</span> 
+	year<span class="token punctuation">(</span>base_date<span class="token punctuation">)</span> <span class="token keyword">as</span> year<span class="token punctuation">,</span> 
+	month<span class="token punctuation">(</span>base_date<span class="token punctuation">)</span> <span class="token keyword">as</span> month<span class="token punctuation">,</span> 
+	day<span class="token punctuation">(</span>base_date<span class="token punctuation">)</span> <span class="token keyword">as</span> day<span class="token punctuation">,</span> 
+	date_format<span class="token punctuation">(</span>base_date<span class="token punctuation">,</span> <span class="token string">'EEEE'</span><span class="token punctuation">)</span> <span class="token keyword">as</span> dayname_of_week
+<span class="token keyword">from</span> 
+	dates
+sort <span class="token keyword">by</span> 
+	base_date<span class="token punctuation">;</span>
+</code></pre>
+<p>Resulting table will look something like this:</p>
+<pre class=" language-sql"><code class="prism  language-sql">   <span class="token keyword">DATE</span>         YEAR  MONTH    DAY     DAY_OF_WEEK
+<span class="token number">2016</span><span class="token operator">-</span><span class="token number">01</span><span class="token operator">-</span><span class="token number">01</span>      <span class="token number">2016</span>    <span class="token number">1</span>       <span class="token number">1</span>       Friday
+<span class="token number">2016</span><span class="token operator">-</span><span class="token number">01</span><span class="token operator">-</span><span class="token number">02</span>      <span class="token number">2016</span>    <span class="token number">1</span>       <span class="token number">2</span>       Saturday
+<span class="token number">2016</span><span class="token operator">-</span><span class="token number">01</span><span class="token operator">-</span><span class="token number">03</span>      <span class="token number">2016</span>    <span class="token number">1</span>       <span class="token number">3</span>       Sunday
+<span class="token number">2016</span><span class="token operator">-</span><span class="token number">01</span><span class="token operator">-</span><span class="token number">04</span>      <span class="token number">2016</span>    <span class="token number">1</span>       <span class="token number">4</span>       Monday
+<span class="token number">2016</span><span class="token operator">-</span><span class="token number">01</span><span class="token operator">-</span><span class="token number">05</span>      <span class="token number">2016</span>    <span class="token number">1</span>       <span class="token number">5</span>       Tuesday
+<span class="token number">2016</span><span class="token operator">-</span><span class="token number">01</span><span class="token operator">-</span><span class="token number">06</span>      <span class="token number">2016</span>    <span class="token number">1</span>       <span class="token number">6</span>       Wednesday
+<span class="token number">2016</span><span class="token operator">-</span><span class="token number">01</span><span class="token operator">-</span><span class="token number">07</span>      <span class="token number">2016</span>    <span class="token number">1</span>       <span class="token number">7</span>       Thursday
+<span class="token number">2016</span><span class="token operator">-</span><span class="token number">01</span><span class="token operator">-</span><span class="token number">08</span>      <span class="token number">2016</span>    <span class="token number">1</span>       <span class="token number">8</span>       Friday
+<span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+<span class="token punctuation">.</span><span class="token punctuation">.</span><span class="token punctuation">.</span>
+<span class="token number">2018</span><span class="token operator">-</span><span class="token number">12</span><span class="token operator">-</span><span class="token number">30</span>      <span class="token number">2018</span>    <span class="token number">12</span>      <span class="token number">30</span>      Sunday
+<span class="token number">2018</span><span class="token operator">-</span><span class="token number">12</span><span class="token operator">-</span><span class="token number">31</span>      <span class="token number">2018</span>    <span class="token number">12</span>      <span class="token number">31</span>      Monday
+</code></pre>
+<h3 id="part-2---queries">Part 2 - Queries</h3>
+<ol>
+<li><strong>Top 10 hotels with max absolute temperature difference by month</strong></li>
+</ol>
+<pre class=" language-sql"><code class="prism  language-sql"><span class="token keyword">with</span>
+hotels_diff <span class="token keyword">as</span> <span class="token punctuation">(</span>
+	<span class="token keyword">select</span> 
+		id<span class="token punctuation">,</span> date_year<span class="token punctuation">,</span> date_month<span class="token punctuation">,</span> <span class="token punctuation">(</span><span class="token function">max</span><span class="token punctuation">(</span>tmpr_c<span class="token punctuation">)</span> <span class="token operator">-</span> <span class="token function">min</span><span class="token punctuation">(</span>tmpr_c<span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token keyword">as</span> tmpr_diff 
+	<span class="token keyword">from</span> 
+		hotels 
+	<span class="token keyword">group</span> <span class="token keyword">by</span> 
+		id<span class="token punctuation">,</span> date_year<span class="token punctuation">,</span> date_month
+<span class="token punctuation">)</span><span class="token punctuation">,</span>
+result <span class="token keyword">as</span> <span class="token punctuation">(</span>
+	<span class="token keyword">select</span>
+		id<span class="token punctuation">,</span> date_year<span class="token punctuation">,</span> date_month<span class="token punctuation">,</span> tmpr_diff<span class="token punctuation">,</span> 
+		rank<span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">over</span> <span class="token punctuation">(</span><span class="token keyword">partition</span> <span class="token keyword">by</span> date_month <span class="token keyword">order</span> <span class="token keyword">by</span> tmpr_diff <span class="token keyword">desc</span><span class="token punctuation">)</span> <span class="token keyword">as</span> rank
+	<span class="token keyword">from</span> 
+		hotels_diff
+<span class="token punctuation">)</span>
+<span class="token keyword">select</span>
+	id<span class="token punctuation">,</span> date_year<span class="token punctuation">,</span> date_month<span class="token punctuation">,</span> tmpr_diff
+<span class="token keyword">from</span> 
+	result
+<span class="token keyword">where</span> 
+	rank <span class="token operator">&lt;=</span> <span class="token number">10</span><span class="token punctuation">;</span>
+</code></pre>
+<p>The main idea of this query is following - first we get <strong>hotels_diff</strong> temporary table which contains temperature differences for every hotel in dataset by month. Now we need to choose top 10 hotels for <em>every</em> month. This goal can be achieved by using partitioning by month and the <code>rank()</code> function. This subquery is also designed as CTE because we need to use <code>where</code> statement with the <em>rank</em> column.</p>
+<p>After query execution we get the following result - top 10 hotels with their temperature diffs for every of three monthes in the dataset.</p>
+<pre class=" language-sql"><code class="prism  language-sql">  HOTEL_ID      YEAR  MONTH      TEMPERATURE_DIFF
+<span class="token number">446676598786</span>    <span class="token number">2017</span>    <span class="token number">8</span>       <span class="token number">15.45</span>
+<span class="token number">1005022347266</span>   <span class="token number">2017</span>    <span class="token number">8</span>       <span class="token number">15.2</span>
+<span class="token number">541165879300</span>    <span class="token number">2017</span>    <span class="token number">8</span>       <span class="token number">14.283999999999995</span>
+<span class="token number">1425929142272</span>   <span class="token number">2017</span>    <span class="token number">8</span>       <span class="token number">13.912500000000001</span>
+<span class="token number">1013612281866</span>   <span class="token number">2017</span>    <span class="token number">8</span>       <span class="token number">13.588888888888892</span>
+<span class="token number">919123001347</span>    <span class="token number">2017</span>    <span class="token number">8</span>       <span class="token number">13.545833333333336</span>
+<span class="token number">824633720832</span>    <span class="token number">2017</span>    <span class="token number">8</span>       <span class="token number">13.399999999999999</span>
+<span class="token number">953482739712</span>    <span class="token number">2017</span>    <span class="token number">8</span>       <span class="token number">13.266666666666662</span>
+<span class="token number">996432412677</span>    <span class="token number">2017</span>    <span class="token number">8</span>       <span class="token number">13.247826086956525</span>
+<span class="token number">42949672961</span>     <span class="token number">2017</span>    <span class="token number">8</span>       <span class="token number">13.247826086956525</span>
+
+<span class="token number">1571958030336</span>   <span class="token number">2017</span>    <span class="token number">9</span>       <span class="token number">22.424999999999997</span>
+<span class="token number">996432412673</span>    <span class="token number">2017</span>    <span class="token number">9</span>       <span class="token number">22.34347826086957</span>
+<span class="token number">549755813890</span>    <span class="token number">2017</span>    <span class="token number">9</span>       <span class="token number">22.34347826086957</span>
+<span class="token number">403726925824</span>    <span class="token number">2017</span>    <span class="token number">9</span>       <span class="token number">22.34347826086957</span>
+<span class="token number">231928233987</span>    <span class="token number">2017</span>    <span class="token number">9</span>       <span class="token number">21.992000000000004</span>
+<span class="token number">1606317768705</span>   <span class="token number">2017</span>    <span class="token number">9</span>       <span class="token number">21.992000000000004</span>
+<span class="token number">996432412678</span>    <span class="token number">2017</span>    <span class="token number">9</span>       <span class="token number">21.752000000000002</span>
+<span class="token number">970662608897</span>    <span class="token number">2017</span>    <span class="token number">9</span>       <span class="token number">21.752000000000002</span>
+<span class="token number">730144440321</span>    <span class="token number">2017</span>    <span class="token number">9</span>       <span class="token number">21.752000000000002</span>
+<span class="token number">755914244102</span>    <span class="token number">2017</span>    <span class="token number">9</span>       <span class="token number">21.262499999999992</span>
+
+<span class="token number">1468878815239</span>   <span class="token number">2016</span>    <span class="token number">10</span>      <span class="token number">21.641666666666662</span>
+<span class="token number">317827579908</span>    <span class="token number">2016</span>    <span class="token number">10</span>      <span class="token number">21.641666666666662</span>
+<span class="token number">1065151889409</span>   <span class="token number">2016</span>    <span class="token number">10</span>      <span class="token number">21.287499999999998</span>
+<span class="token number">1365799600129</span>   <span class="token number">2016</span>    <span class="token number">10</span>      <span class="token number">21.095833333333335</span>
+<span class="token number">747324309508</span>    <span class="token number">2016</span>    <span class="token number">10</span>      <span class="token number">20.71818181818182</span>
+<span class="token number">77309411328</span>     <span class="token number">2016</span>    <span class="token number">10</span>      <span class="token number">20.644</span>
+<span class="token number">1400159338496</span>   <span class="token number">2016</span>    <span class="token number">10</span>      <span class="token number">20.315999999999995</span>
+<span class="token number">893353197569</span>    <span class="token number">2016</span>    <span class="token number">10</span>      <span class="token number">19.791666666666668</span>
+<span class="token number">1477468749828</span>   <span class="token number">2016</span>    <span class="token number">10</span>      <span class="token number">19.766666666666662</span>
+<span class="token number">77309411330</span>     <span class="token number">2016</span>    <span class="token number">10</span>      <span class="token number">19.699999999999996</span>
+</code></pre>
+<p>Also I conducted a small experiment - I created two similar tables with hotels, but they additionally were divided into 10 and 30 buckets by the hotel id. Total time to perform the query total working time was left approximately the same, so I concluded that on such a small dataset, bucketing is not very efficient.</p>
+<ol start="2">
+<li><strong>Top 10 busy (with the biggest visits count) hotels for each month. If visit dates refer to several months it should be counted for all affected months.</strong></li>
+</ol>
+<pre class=" language-sql"><code class="prism  language-sql"><span class="token keyword">with</span>
+visit_periods <span class="token keyword">as</span> <span class="token punctuation">(</span>
+	<span class="token keyword">select</span> 
+		hotel_id<span class="token punctuation">,</span> month_in<span class="token punctuation">,</span> year_in<span class="token punctuation">,</span> month_out<span class="token punctuation">,</span> year_out<span class="token punctuation">,</span> <span class="token function">count</span><span class="token punctuation">(</span><span class="token operator">*</span><span class="token punctuation">)</span> <span class="token keyword">as</span> cnt
+	<span class="token keyword">from</span> 
+		visits 
+	<span class="token keyword">group</span> <span class="token keyword">by</span> 
+		hotel_id<span class="token punctuation">,</span> month_in<span class="token punctuation">,</span> year_in<span class="token punctuation">,</span> month_out<span class="token punctuation">,</span> year_out
+<span class="token punctuation">)</span><span class="token punctuation">,</span>
+dtd <span class="token keyword">as</span> <span class="token punctuation">(</span>
+	<span class="token keyword">select</span> year<span class="token punctuation">,</span> month <span class="token keyword">from</span> date_dim <span class="token keyword">group</span> <span class="token keyword">by</span> year<span class="token punctuation">,</span> month
+<span class="token punctuation">)</span><span class="token punctuation">,</span>
+count_total <span class="token keyword">as</span> <span class="token punctuation">(</span>
+	<span class="token keyword">select</span> 
+		visit_periods<span class="token punctuation">.</span>hotel_id <span class="token keyword">as</span> id<span class="token punctuation">,</span> dtd<span class="token punctuation">.</span>month <span class="token keyword">as</span> date_month<span class="token punctuation">,</span> 
+		dtd<span class="token punctuation">.</span>year <span class="token keyword">as</span> date_year<span class="token punctuation">,</span> <span class="token function">sum</span><span class="token punctuation">(</span>visit_periods<span class="token punctuation">.</span>cnt<span class="token punctuation">)</span> <span class="token keyword">as</span> total
+	<span class="token keyword">from</span> 
+		dtd <span class="token keyword">join</span> visit_periods <span class="token keyword">on</span> <span class="token punctuation">(</span>
+			visit_periods<span class="token punctuation">.</span>month_in <span class="token operator">&lt;=</span> dtd<span class="token punctuation">.</span>month 
+			<span class="token operator">and</span> visit_periods<span class="token punctuation">.</span>year_in <span class="token operator">&lt;=</span> dtd<span class="token punctuation">.</span>year
+			<span class="token operator">and</span> visit_periods<span class="token punctuation">.</span>month_out <span class="token operator">&gt;=</span> dtd<span class="token punctuation">.</span>month
+			<span class="token operator">and</span> visit_periods<span class="token punctuation">.</span>year_out <span class="token operator">&gt;=</span> dtd<span class="token punctuation">.</span>year<span class="token punctuation">)</span>
+	<span class="token keyword">group</span> <span class="token keyword">by</span> 
+		dtd<span class="token punctuation">.</span>month<span class="token punctuation">,</span> dtd<span class="token punctuation">.</span>year<span class="token punctuation">,</span> visit_periods<span class="token punctuation">.</span>hotel_id
+<span class="token punctuation">)</span><span class="token punctuation">,</span>
+result <span class="token keyword">as</span> <span class="token punctuation">(</span>
+	<span class="token keyword">select</span>
+		id<span class="token punctuation">,</span> date_year<span class="token punctuation">,</span> date_month<span class="token punctuation">,</span> total<span class="token punctuation">,</span> 
+		row_number<span class="token punctuation">(</span><span class="token punctuation">)</span> <span class="token keyword">over</span> <span class="token punctuation">(</span><span class="token keyword">partition</span> <span class="token keyword">by</span> date_year<span class="token punctuation">,</span> date_month <span class="token keyword">order</span> <span class="token keyword">by</span> total <span class="token keyword">desc</span><span class="token punctuation">)</span> <span class="token keyword">as</span> rank
+	<span class="token keyword">from</span>
+		count_total
+<span class="token punctuation">)</span>
+<span class="token keyword">select</span>
+	id<span class="token punctuation">,</span> date_year<span class="token punctuation">,</span> date_month<span class="token punctuation">,</span> total<span class="token punctuation">,</span> rank
+<span class="token keyword">from</span> 
+	result
+<span class="token keyword">where</span> 
+	rank <span class="token operator">&lt;=</span> <span class="token number">10</span><span class="token punctuation">;</span>
+</code></pre>
+<p>Let understand this script by going through its parts:</p>
+<ul>
+<li>
+<p>In the first CTE for every hotel we get all unique pairs of check-in year/month and check-out year/month and calculate total numbers of visits which has corresponding check-in/out dates <em>(for example if we have pair “09/2020” and “10/2020” we will count all visits with check-in in September 2020 and check-out in October 2020 for every particular hotel)</em>.</p>
+</li>
+<li>
+<p>Then we just group our date dimension in order to get year/month combinations, because in this task we don’t need days - they will spoil our join in the next CTE.</p>
+</li>
+<li>
+<p>Now the main part - <em>count_total</em> table. In this CTE we take every year/month from date dimension and find all records from <em>visit_periods</em> where check-in date is before our current taken date and check-out date is after it. It means that all visits from this period should be counted for the taken year/month. Also I use <code>row_number()</code> instead of <code>rank()</code> in order to get <em>exactly</em> 10 records for every month in resulting table.</p>
+</li>
+</ul>
+<p>Here’s the piece of resulting table (full result is stored in <code>res02.txt</code> file in archive with this homework). Full result may seem strange, but it’s because of extremely unbalanced input dataset (I performed the small EDA to see check-in and check-out statistics by month, results are in the <code>eda.txt</code> file).</p>
+<pre class=" language-sql"><code class="prism  language-sql">  HOTEL_ID      YEAR  MONTH    VISITS  RANK
+<span class="token number">2491081031684</span>   <span class="token number">2017</span>    <span class="token number">8</span>       <span class="token number">408</span>     <span class="token number">1</span>
+<span class="token number">42949672963</span>     <span class="token number">2017</span>    <span class="token number">8</span>       <span class="token number">403</span>     <span class="token number">2</span>
+<span class="token number">128849018881</span>    <span class="token number">2017</span>    <span class="token number">8</span>       <span class="token number">393</span>     <span class="token number">3</span>
+<span class="token number">2233382993923</span>   <span class="token number">2017</span>    <span class="token number">8</span>       <span class="token number">392</span>     <span class="token number">4</span>
+<span class="token number">2619930050560</span>   <span class="token number">2017</span>    <span class="token number">8</span>       <span class="token number">392</span>     <span class="token number">5</span>
+<span class="token number">1864015806471</span>   <span class="token number">2017</span>    <span class="token number">8</span>       <span class="token number">392</span>     <span class="token number">6</span>
+<span class="token number">377957122048</span>    <span class="token number">2017</span>    <span class="token number">8</span>       <span class="token number">392</span>     <span class="token number">7</span>
+<span class="token number">2611340115970</span>   <span class="token number">2017</span>    <span class="token number">8</span>       <span class="token number">391</span>     <span class="token number">8</span>
+<span class="token number">146028888072</span>    <span class="token number">2017</span>    <span class="token number">8</span>       <span class="token number">390</span>     <span class="token number">9</span>
+<span class="token number">3307124817921</span>   <span class="token number">2017</span>    <span class="token number">8</span>       <span class="token number">390</span>     <span class="token number">10</span>
+
+<span class="token number">455266533377</span>    <span class="token number">2017</span>    <span class="token number">9</span>       <span class="token number">445</span>     <span class="token number">1</span>
+<span class="token number">2018634629125</span>   <span class="token number">2017</span>    <span class="token number">9</span>       <span class="token number">432</span>     <span class="token number">2</span>
+<span class="token number">893353197572</span>    <span class="token number">2017</span>    <span class="token number">9</span>       <span class="token number">421</span>     <span class="token number">3</span>
+<span class="token number">1881195675654</span>   <span class="token number">2017</span>    <span class="token number">9</span>       <span class="token number">418</span>     <span class="token number">4</span>
+<span class="token number">1829656068103</span>   <span class="token number">2017</span>    <span class="token number">9</span>       <span class="token number">418</span>     <span class="token number">5</span>
+<span class="token number">2920577761284</span>   <span class="token number">2017</span>    <span class="token number">9</span>       <span class="token number">417</span>     <span class="token number">6</span>
+<span class="token number">128849018887</span>    <span class="token number">2017</span>    <span class="token number">9</span>       <span class="token number">414</span>     <span class="token number">7</span>
+<span class="token number">3204045602824</span>   <span class="token number">2017</span>    <span class="token number">9</span>       <span class="token number">414</span>     <span class="token number">8</span>
+<span class="token number">3032246910980</span>   <span class="token number">2017</span>    <span class="token number">9</span>       <span class="token number">413</span>     <span class="token number">9</span>
+<span class="token number">1494648619010</span>   <span class="token number">2017</span>    <span class="token number">9</span>       <span class="token number">412</span>     <span class="token number">10</span>
+
+<span class="token number">3186865733636</span>   <span class="token number">2017</span>    <span class="token number">10</span>      <span class="token number">57</span>      <span class="token number">1</span>
+<span class="token number">2628519985161</span>   <span class="token number">2017</span>    <span class="token number">10</span>      <span class="token number">51</span>      <span class="token number">2</span>
+<span class="token number">1013612281859</span>   <span class="token number">2017</span>    <span class="token number">10</span>      <span class="token number">51</span>      <span class="token number">3</span>
+<span class="token number">2877628088322</span>   <span class="token number">2017</span>    <span class="token number">10</span>      <span class="token number">50</span>      <span class="token number">4</span>
+<span class="token number">1460288880640</span>   <span class="token number">2017</span>    <span class="token number">10</span>      <span class="token number">50</span>      <span class="token number">5</span>
+<span class="token number">910533066756</span>    <span class="token number">2017</span>    <span class="token number">10</span>      <span class="token number">50</span>      <span class="token number">6</span>
+<span class="token number">1331439861761</span>   <span class="token number">2017</span>    <span class="token number">10</span>      <span class="token number">50</span>      <span class="token number">7</span>
+<span class="token number">1675037245442</span>   <span class="token number">2017</span>    <span class="token number">10</span>      <span class="token number">49</span>      <span class="token number">8</span>
+<span class="token number">893353197570</span>    <span class="token number">2017</span>    <span class="token number">10</span>      <span class="token number">49</span>      <span class="token number">9</span>
+<span class="token number">1314259992576</span>   <span class="token number">2017</span>    <span class="token number">10</span>      <span class="token number">49</span>      <span class="token number">10</span>
+</code></pre>
+<br>
+<ol start="3">
+<li><strong>For visits with extended stay (more than 7 days) calculate weather trend (the day temperature difference between last and first day of stay) and average temperature during stay.</strong></li>
+</ol>
+<pre class=" language-sql"><code class="prism  language-sql"><span class="token keyword">with</span> 
+long_visits <span class="token keyword">as</span> <span class="token punctuation">(</span>
+	<span class="token keyword">select</span> <span class="token operator">*</span> <span class="token keyword">from</span> visits <span class="token keyword">where</span> datediff<span class="token punctuation">(</span>srch_co<span class="token punctuation">,</span> srch_ci<span class="token punctuation">)</span> <span class="token operator">&gt;</span> <span class="token number">7</span>
+<span class="token punctuation">)</span><span class="token punctuation">,</span>
+long_visits_enriched <span class="token keyword">as</span> <span class="token punctuation">(</span>
+	<span class="token keyword">select</span> 
+		long_visits<span class="token punctuation">.</span>id <span class="token keyword">as</span> visit_id<span class="token punctuation">,</span> 
+		sort_array<span class="token punctuation">(</span>collect_list<span class="token punctuation">(</span>
+			concat_ws<span class="token punctuation">(</span><span class="token string">'x'</span><span class="token punctuation">,</span> hotels<span class="token punctuation">.</span>date_full<span class="token punctuation">,</span> cast<span class="token punctuation">(</span>hotels<span class="token punctuation">.</span>tmpr_c <span class="token keyword">as</span> string<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token keyword">as</span> weather<span class="token punctuation">,</span> 
+		<span class="token function">avg</span><span class="token punctuation">(</span>hotels<span class="token punctuation">.</span>tmpr_c<span class="token punctuation">)</span> <span class="token keyword">as</span> avg_tmpr
+	<span class="token keyword">from</span> 
+		long_visits <span class="token keyword">join</span> hotels <span class="token keyword">on</span> <span class="token punctuation">(</span>
+			    hotels<span class="token punctuation">.</span>id <span class="token operator">=</span> long_visits<span class="token punctuation">.</span>hotel_id
+			<span class="token operator">and</span> hotels<span class="token punctuation">.</span>date_full <span class="token operator">&gt;=</span> long_visits<span class="token punctuation">.</span>srch_ci
+			<span class="token operator">and</span> hotels<span class="token punctuation">.</span>date_full <span class="token operator">&lt;=</span> long_visits<span class="token punctuation">.</span>srch_co
+		<span class="token punctuation">)</span>
+	<span class="token keyword">group</span> <span class="token keyword">by</span>
+		long_visits<span class="token punctuation">.</span>id
+<span class="token punctuation">)</span>
+<span class="token keyword">select</span> 
+	visit_id<span class="token punctuation">,</span> 
+	cast<span class="token punctuation">(</span>avg_tmpr <span class="token keyword">as</span> <span class="token keyword">decimal</span><span class="token punctuation">(</span><span class="token number">12</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">,</span> 
+	cast<span class="token punctuation">(</span>split<span class="token punctuation">(</span>weather<span class="token punctuation">[</span>size<span class="token punctuation">(</span>weather<span class="token punctuation">)</span><span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">,</span> <span class="token string">'x'</span><span class="token punctuation">)</span><span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span> <span class="token keyword">as</span> <span class="token keyword">decimal</span><span class="token punctuation">(</span><span class="token number">12</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">)</span><span class="token punctuation">)</span> 
+		<span class="token operator">-</span> cast<span class="token punctuation">(</span>split<span class="token punctuation">(</span>weather<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">,</span> <span class="token string">'x'</span><span class="token punctuation">)</span><span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span> <span class="token keyword">as</span> <span class="token keyword">decimal</span><span class="token punctuation">(</span><span class="token number">12</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token keyword">as</span> tmpr_diff
+<span class="token keyword">from</span> 
+	long_visits_enriched 
+<span class="token keyword">limit</span> <span class="token number">10</span><span class="token punctuation">;</span>
+</code></pre>
+<p>The idea of this query is pretty simple, but some manipulations can be not clear, so I’ll try to explain them.<br>
+First let’s take a look on this statement. <code>collect_list</code> operator can be used instead of aggregation with <code>group by</code> in order to get the list of grouped records for every group. Here for every visit we get list of strings in format <code>&lt;date&gt;x&lt;temperature&gt;</code> for every day of this visit. Then this list is sorted and we have element matching the first day of visit on the first place in the array and element matching the last day - on the last place.</p>
+<pre class=" language-sql"><code class="prism  language-sql">sort_array<span class="token punctuation">(</span>collect_list<span class="token punctuation">(</span>concat_ws<span class="token punctuation">(</span><span class="token string">'x'</span><span class="token punctuation">,</span> hotels<span class="token punctuation">.</span>date_full<span class="token punctuation">,</span> cast<span class="token punctuation">(</span>hotels<span class="token punctuation">.</span>tmpr_c <span class="token keyword">as</span> string<span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+</code></pre>
+<p>Then we take the last and the first elements from the array, extract temperatures by splitting string and calculate the temperature difference between last and first day of stay.</p>
+<pre class=" language-sql"><code class="prism  language-sql">cast<span class="token punctuation">(</span>split<span class="token punctuation">(</span>weather<span class="token punctuation">[</span>size<span class="token punctuation">(</span>weather<span class="token punctuation">)</span><span class="token operator">-</span><span class="token number">1</span><span class="token punctuation">]</span><span class="token punctuation">,</span> <span class="token string">'x'</span><span class="token punctuation">)</span><span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span> <span class="token keyword">as</span> <span class="token keyword">decimal</span><span class="token punctuation">(</span><span class="token number">12</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">)</span><span class="token punctuation">)</span> <span class="token operator">-</span>
+cast<span class="token punctuation">(</span>split<span class="token punctuation">(</span>weather<span class="token punctuation">[</span><span class="token number">0</span><span class="token punctuation">]</span><span class="token punctuation">,</span> <span class="token string">'x'</span><span class="token punctuation">)</span><span class="token punctuation">[</span><span class="token number">1</span><span class="token punctuation">]</span> <span class="token keyword">as</span> <span class="token keyword">decimal</span><span class="token punctuation">(</span><span class="token number">12</span><span class="token punctuation">,</span> <span class="token number">2</span><span class="token punctuation">)</span><span class="token punctuation">)</span>
+</code></pre>
+<p>Also this query could be written in more understandable way using window functions:</p>
+<pre class=" language-sql"><code class="prism  language-sql"><span class="token keyword">with</span> 
+long_visits <span class="token keyword">as</span> <span class="token punctuation">(</span>
+	<span class="token keyword">select</span> <span class="token operator">*</span> <span class="token keyword">from</span> visits <span class="token keyword">where</span> datediff<span class="token punctuation">(</span>srch_co<span class="token punctuation">,</span> srch_ci<span class="token punctuation">)</span> <span class="token operator">&gt;</span> <span class="token number">7</span>
+<span class="token punctuation">)</span>
+<span class="token keyword">select</span> 
+	long_visits<span class="token punctuation">.</span>id <span class="token keyword">as</span> visit_id<span class="token punctuation">,</span> 
+	<span class="token function">avg</span><span class="token punctuation">(</span>hotels<span class="token punctuation">.</span>tmpr_c<span class="token punctuation">)</span> <span class="token keyword">over</span> <span class="token punctuation">(</span><span class="token keyword">partition</span> <span class="token keyword">by</span> long_visits<span class="token punctuation">.</span>id<span class="token punctuation">)</span> <span class="token keyword">as</span> avg_tmpr<span class="token punctuation">,</span>
+	last_value<span class="token punctuation">(</span>hotels<span class="token punctuation">.</span>tmpr_c<span class="token punctuation">)</span> <span class="token keyword">over</span> <span class="token punctuation">(</span><span class="token keyword">partition</span> <span class="token keyword">by</span> long_visits<span class="token punctuation">.</span>id <span class="token keyword">order</span> <span class="token keyword">by</span> hotels<span class="token punctuation">.</span>date_full<span class="token punctuation">)</span> <span class="token operator">-</span>
+		first_value<span class="token punctuation">(</span>hotels<span class="token punctuation">.</span>tmpr_c<span class="token punctuation">)</span> <span class="token keyword">over</span> <span class="token punctuation">(</span><span class="token keyword">partition</span> <span class="token keyword">by</span> long_visits<span class="token punctuation">.</span>id <span class="token keyword">order</span> <span class="token keyword">by</span> hotels<span class="token punctuation">.</span>date_full<span class="token punctuation">)</span>	
+	<span class="token keyword">as</span> tmpr_diff
+<span class="token keyword">from</span> 
+	long_visits <span class="token keyword">join</span> hotels <span class="token keyword">on</span> <span class="token punctuation">(</span>
+		    hotels<span class="token punctuation">.</span>id <span class="token operator">=</span> long_visits<span class="token punctuation">.</span>hotel_id
+		<span class="token operator">and</span> hotels<span class="token punctuation">.</span>date_full <span class="token operator">&gt;=</span> long_visits<span class="token punctuation">.</span>srch_ci
+		<span class="token operator">and</span> hotels<span class="token punctuation">.</span>date_full <span class="token operator">&lt;=</span> long_visits<span class="token punctuation">.</span>srch_co
+	<span class="token punctuation">)</span>
+<span class="token keyword">limit</span> <span class="token number">10</span><span class="token punctuation">;</span>
+</code></pre>
+<br>
+<p><strong>Interesting note:</strong><br>
+It was a big discovery for me, but <code>avg(hotels.tmpr_c) over (partition by long_visits.id)</code> and  <code>avg(hotels.tmpr_c) over (partition by long_visits.id order by hotels.tmpr_c)</code> will return completely different results. Why it’s happen you can read for example <a href="https://www.postgresql.org/docs/9.1/tutorial-window.html">here</a>.</p>
+<br>
+Results (I set up 10 records limit because amount of extended visits is quite large):
+<pre class=" language-sql"><code class="prism  language-sql"> VISIT_ID     AVG_TMPR    TMPR_TREND
+	<span class="token number">17</span>  	    <span class="token number">21.58</span>   	<span class="token operator">-</span><span class="token number">0.83</span>
+	<span class="token number">45</span>      	<span class="token number">15.32</span>   	<span class="token operator">-</span><span class="token number">2.70</span>
+	<span class="token number">96</span>    	    <span class="token number">12.63</span>   	 <span class="token number">5.15</span>
+	<span class="token number">136</span>     	<span class="token number">22.78</span>   	 <span class="token number">1.85</span>
+	<span class="token number">350</span>         <span class="token number">16.73</span>   	<span class="token operator">-</span><span class="token number">1.50</span>
+	<span class="token number">364</span>     	<span class="token number">12.64</span>   	 <span class="token number">3.70</span>
+	<span class="token number">408</span>     	<span class="token number">15.90</span>   	 <span class="token number">1.05</span>
+	<span class="token number">475</span>     	<span class="token number">16.15</span>   	<span class="token operator">-</span><span class="token number">1.28</span>
+	<span class="token number">508</span>     	<span class="token number">14.42</span>   	<span class="token operator">-</span><span class="token number">7.00</span>
+	<span class="token number">512</span>     	<span class="token number">16.21</span>   	<span class="token operator">-</span><span class="token number">0.12</span>
+</code></pre>
+<h3 id="part-3---execution-plans">Part 3 - Execution plans</h3>
+<p>To optimise joins in my scripts I put a bigger table into the right side of join because in this case it isn’t stored in memory - instead of this it is handled as a stream. Also a relatively simple way to improve the performance is to divide tables into the buckets by the columns used in join.</p>
+<p>Execution plans are stored in the archive with this homework in files named <code>select*expl.txt</code> with the number of query instead of <code>*</code>.</p>
+<p>Execution plans for the first and the third queries didn’t have any warnings and execution plan for the second query had the following warnings:</p>
+<pre><code>Warning: Map Join MAPJOIN[60][bigTable=?] in task 'Stage-7:MAPRED' is a cross product
+Warning: Map Join MAPJOIN[50][bigTable=?] in task 'Stage-6:MAPRED' is a cross product
+Warning: Shuffle Join JOIN[14][tables = [$hdt$_0, $hdt$_1]] in Stage 'Stage-2:MAPRED' is a cross product
+</code></pre>
+<p>This query has only one join and by design I don’t think that it can be avoided or optimised in some way, so I just left it as it is.</p>
+</div>
+</body>
+
+</html>

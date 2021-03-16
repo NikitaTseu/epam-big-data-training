@@ -1,0 +1,28 @@
+with 
+long_visits as (
+	select * from visits where datediff(srch_co, srch_ci) > 7
+),
+long_visits_enriched as (
+	select 
+		long_visits.id as visit_id, 
+		sort_array(collect_list(
+			concat_ws('x', hotels.date_full, cast(hotels.tmpr_c as string)))) as weather, 
+		avg(hotels.tmpr_c) as avg_tmpr
+	from 
+		long_visits join hotels on (
+			    hotels.id = long_visits.hotel_id
+			and hotels.date_full >= long_visits.srch_ci
+			and hotels.date_full <= long_visits.srch_co
+		)
+	group by
+		long_visits.id
+)
+select 
+	visit_id, 
+	cast(avg_tmpr as decimal(12, 2)), 
+	cast(split(weather[size(weather)-1], 'x')[1] as decimal(12, 2)) 
+		- cast(split(weather[0], 'x')[1] as decimal(12, 2)) as tmpr_diff
+from 
+	long_visits_enriched 
+limit 10;
+

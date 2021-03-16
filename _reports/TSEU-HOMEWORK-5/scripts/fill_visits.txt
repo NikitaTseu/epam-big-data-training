@@ -1,0 +1,33 @@
+INSERT INTO TABLE visits 
+	PARTITION (
+		sbm_year, sbm_month
+	)
+	SELECT 
+		id, date_time, site_name, posa_continent, user_location_region,
+		user_location_country, user_location_city, orig_destination_distance, 
+		user_id, is_mobile, is_package, channel, srch_ci, srch_co,
+		srch_adults_cnt, srch_children_cnt, srch_rm_cnt, srch_destination_id, 
+		srch_destination_type_id, hotel_id, year(srch_ci), month(srch_ci),
+		day(srch_ci), year(srch_co), month(srch_co), day(srch_co), 
+		year(date_time), month(date_time) 
+	FROM 
+		visits_from_hdfs
+	WHERE 
+		srch_ci <= srch_co;
+
+INSERT INTO TABLE visits 
+	PARTITION (
+		sbm_year, sbm_month
+	)
+	SELECT 
+		id, date_time, site_name, posa_continent, user_location_region,
+		user_location_country, user_location_city, orig_destination_distance, 
+		user_id, is_mobile, is_package, channel, srch_co, srch_ci,
+		srch_adults_cnt, srch_children_cnt, srch_rm_cnt, srch_destination_id, 
+		srch_destination_type_id, hotel_id, year(srch_co), month(srch_co),
+		day(srch_co), year(srch_ci), month(srch_ci), day(srch_ci), 
+		year(date_time), month(date_time) 
+	FROM 
+		visits_from_hdfs
+	WHERE 
+		srch_ci > srch_co;	

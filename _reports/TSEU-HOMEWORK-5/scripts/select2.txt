@@ -1,0 +1,38 @@
+with
+visit_periods as (
+	select 
+		hotel_id, month_in, year_in, month_out, year_out, count(*) as cnt
+	from 
+		visits 
+	group by 
+		hotel_id, month_in, year_in, month_out, year_out
+),
+dtd as (
+	select year, month from date_dim group by year, month
+),
+count_total as (
+	select 
+		visit_periods.hotel_id as id, dtd.month as date_month, 
+		dtd.year as date_year, sum(visit_periods.cnt) as total
+	from 
+		dtd join visit_periods on (
+			visit_periods.month_in <= dtd.month 
+			and visit_periods.year_in <= dtd.year
+			and visit_periods.month_out >= dtd.month
+			and visit_periods.year_out >= dtd.year)
+	group by 
+		dtd.month, dtd.year, visit_periods.hotel_id
+),
+result as (
+	select
+		id, date_year, date_month, total, 
+		row_number() over (partition by date_year, date_month order by total desc) as rank
+	from
+		count_total
+)
+select
+	id, date_year, date_month, total, rank
+from 
+	result
+where 
+	rank <= 10;

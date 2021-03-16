@@ -1,0 +1,19 @@
+with
+hotels_diff as (
+	select 
+		id, date_year, date_month, (max(tmpr_c) - min(tmpr_c)) as tmpr_diff 
+	from 
+		hotels 
+	group by 
+		id, date_year, date_month),
+result as (
+	select
+		id, date_year, date_month, tmpr_diff, rank() over (partition by date_month, date_year order by tmpr_diff desc) as rank
+	from
+		hotels_diff)
+select
+	id, date_year, date_month, tmpr_diff
+from 
+	result
+where 
+	rank <= 10;

@@ -1,0 +1,19 @@
+set hivevar:start_day=2015-01-01;
+set hivevar:end_day=2018-12-31;
+ 
+create table if not exists date_dim as
+with dates as (
+	select 
+		date_add("${start_day}", arr.pos) as base_date
+	from (select posexplode(split(repeat("x", datediff("${end_day}", "${start_day}")), "x"))) arr
+)
+select
+    base_date as base_date, 
+	year(base_date) as year, 
+	month(base_date) as month, 
+	day(base_date) as day, 
+	date_format(base_date, 'EEEE') as dayname_of_week
+from 
+	dates
+sort by 
+	base_date;

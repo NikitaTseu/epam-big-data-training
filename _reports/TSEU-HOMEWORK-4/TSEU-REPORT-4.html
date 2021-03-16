@@ -1,0 +1,114 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TSEU-REPORT-4</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+</head>
+
+<body class="stackedit">
+  <div class="stackedit__html"><h2 id="tseu-nikita">TSEU NIKITA</h2>
+<p><strong>201 Big Data Mentoring Program Global 2021</strong><br>
+<strong><em>Homework 4</em></strong> – Kafka</p>
+<h3 id="part-1---clickstream-data-analysis-pipeline-using-ksql">Part 1 - Clickstream Data Analysis Pipeline Using KSQL</h3>
+<p>This tutorial shows how KSQL can be used to process a stream of click data, aggregate and filter it, and join to information about the users. Visualisation of the results is provided by Grafana, on top of data streamed to Elasticsearch.</p>
+<p>The schematic view of the data pipeline is following:</p>
+<p><img src="images/clickstream/schema.jpg" alt="pipeline schema"></p>
+<ol>
+<li>
+<p><strong>Create the Clickstream Data with ksqlDB</strong><br>
+After performing all steps described in the tutorial we get the following data flow in ksqlDB:<br><br>
+<img src="images/clickstream/flow.jpg" alt="data flow"><br><br>
+Three source connectors push mock data into Kafka topics lying under the ksqlDB, then this data is stored in the “sourse” tables and streams (<code>CLICKSTREAM_CODES, WEB_USERS, CLICKSTREAM</code>) and the other tables and streams are derived from the “source” ones.</p>
+</li>
+<li>
+<p><strong>Visualize created data in Grafana</strong><br>
+Grafana provides us with a great tools to perform interactive visualization of input data streams. So in this tutorial six metrics are counted:</p>
+</li>
+</ol>
+<ul>
+<li>Total number of <em>4xx</em> error codes</li>
+<li>Number of clicks each user have done</li>
+<li>Count of user activity for a given user session</li>
+<li>Page views counter</li>
+<li>Total evens counter</li>
+<li>Counter for every particular response code<br><br>
+<img src="images/clickstream/metrics_1.jpg" alt="metrics 1"><br>
+<img src="images/clickstream/metrics_2.jpg" alt="metrics 2"><br>
+<img src="images/clickstream/metrics_3.jpg" alt="metrics 3"><br>
+<img src="images/clickstream/metrics_4.jpg" alt="metrics 4"><br>
+<img src="images/clickstream/metrics_5.jpg" alt="metrics 5"><br>
+<img src="images/clickstream/metrics_6.jpg" alt="metrics 6"></li>
+</ul>
+<ol start="3">
+<li><strong>Sessionize the data</strong><br>
+One of the tables created in the tutorial, <code>CLICK_USER_SESSIONS</code>, shows a count of user activity for a given user session. All clicks from the user count towards the total user activity for the current session. If a user is inactive for 30 seconds, then any subsequent click activity is counted towards a new session.<br><br>
+The clickstream demo simulates user sessions with a script. The script pauses the <code>DATAGEN_CLICKSTREAM</code> connector every 90 seconds for a 35 second period of inactivity. By stopping the <code>DATAGEN_CLICKSTREAM</code> connector for some time greater than 30 seconds, we will get distinct user session.<br><br>
+<img src="images/clickstream/grafana_sessioned.jpg" alt="grafana sessionized"><br></li>
+</ol>
+<h3 id="part-2---joining-hotels-with-weather">Part 2 - Joining hotels with weather</h3>
+<p><strong>Input</strong>:</p>
+<ul>
+<li>Dataset with hotels (already enriched with geohashes)</li>
+<li>Dataset with weather records</li>
+</ul>
+<p><strong>Task</strong>:</p>
+<ul>
+<li>Load input data into the Hive tables.</li>
+<li>Perform cross join of hotels with date dimension (same period as in weather data).</li>
+<li>Load hotels and weather records into the Kafka topics using Hive-Kafka integration.</li>
+<li>Create a Kafka Streams application which will:
+<ul>
+<li>Enrich weather records with geohash.</li>
+<li>Join hotels with weather by date and geohash.  In case of multiple results for a hotel in a particular day they should be grouped in a single entity, calculating average weather parameters.</li>
+<li>Write output to separate Kafka topic.</li>
+</ul>
+</li>
+</ul>
+<p><strong>Operating with data in Hive</strong>:</p>
+<ul>
+<li>Load weather data from HDFS to Hive table with corresponding partitioning :</li>
+</ul>
+<pre class=" language-sql"><code class="prism  language-sql"><span class="token keyword">create</span> external <span class="token keyword">table</span> weather_storage 
+		<span class="token punctuation">(</span>lng <span class="token keyword">double</span><span class="token punctuation">,</span> lat <span class="token keyword">double</span><span class="token punctuation">,</span> avg_tmpr_f <span class="token keyword">double</span><span class="token punctuation">,</span> avg_tmpr_c <span class="token keyword">double</span><span class="token punctuation">,</span> wthr_date string<span class="token punctuation">)</span> 
+	partitioned <span class="token keyword">by</span> 
+		<span class="token punctuation">(</span>year <span class="token keyword">integer</span><span class="token punctuation">,</span> month <span class="token keyword">integer</span><span class="token punctuation">,</span> day <span class="token keyword">integer</span><span class="token punctuation">)</span> 
+	stored <span class="token keyword">as</span> parquet 
+	location <span class="token string">'/datasets/kafka/weather'</span><span class="token punctuation">;</span>
+</code></pre>
+<ul>
+<li>Create a special table connected with Kafka topic:</li>
+</ul>
+<pre class=" language-sql"><code class="prism  language-sql"><span class="token keyword">create</span> external <span class="token keyword">table</span> weather 
+		<span class="token punctuation">(</span>lng <span class="token keyword">double</span><span class="token punctuation">,</span> lat <span class="token keyword">double</span><span class="token punctuation">,</span> avg_tmpr_f <span class="token keyword">double</span><span class="token punctuation">,</span> avg_tmpr_c <span class="token keyword">double</span><span class="token punctuation">,</span> wthr_date string<span class="token punctuation">)</span> 
+	stored <span class="token keyword">by</span> 
+		<span class="token string">'org.apache.hadoop.hive.kafka.KafkaStorageHandler'</span> 
+	tblproperties 
+		<span class="token punctuation">(</span><span class="token string">"kafka.topic"</span><span class="token operator">=</span><span class="token string">"weather"</span><span class="token punctuation">,</span> <span class="token string">"kafka.bootstrap.servers"</span><span class="token operator">=</span><span class="token string">"localhost:9092"</span><span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<ul>
+<li>Load data from the intermediate table to the table connected with Kafka topic (+sorting by date because we are trying to model data stream):</li>
+</ul>
+<pre class=" language-sql"><code class="prism  language-sql"><span class="token keyword">insert</span> <span class="token keyword">into</span> <span class="token keyword">table</span> weather <span class="token punctuation">(</span>
+	<span class="token keyword">select</span> 
+		<span class="token punctuation">`</span>lng<span class="token punctuation">`</span><span class="token punctuation">,</span> <span class="token punctuation">`</span>lat<span class="token punctuation">`</span><span class="token punctuation">,</span> <span class="token punctuation">`</span>avg_tmpr_f<span class="token punctuation">`</span><span class="token punctuation">,</span> <span class="token punctuation">`</span>avg_tmpr_c<span class="token punctuation">`</span><span class="token punctuation">,</span> <span class="token punctuation">`</span>wthr_date<span class="token punctuation">`</span><span class="token punctuation">,</span> 
+		 <span class="token boolean">null</span> <span class="token keyword">as</span> <span class="token punctuation">`</span>__key<span class="token punctuation">`</span><span class="token punctuation">,</span> <span class="token boolean">null</span> <span class="token keyword">as</span> <span class="token punctuation">`</span>__partition<span class="token punctuation">`</span><span class="token punctuation">,</span> <span class="token operator">-</span><span class="token number">1</span> <span class="token keyword">as</span> <span class="token punctuation">`</span>__offset<span class="token punctuation">`</span><span class="token punctuation">,</span> <span class="token operator">-</span><span class="token number">1</span> <span class="token keyword">as</span> <span class="token punctuation">`</span>__timestamp<span class="token punctuation">`</span> 
+	<span class="token keyword">from</span> 
+		weather_storage 
+	<span class="token keyword">order</span> <span class="token keyword">by</span> 
+		<span class="token punctuation">`</span>wthr_date<span class="token punctuation">`</span>
+	<span class="token punctuation">)</span><span class="token punctuation">;</span>
+</code></pre>
+<p><strong>Kafka Streams application</strong>:</p>
+<p>To be honest - this task seemed not too difficult, but it was a really tough nut to crack.</p>
+<p>One of the problems is that in Kafka Strems left join produces additional <em>(value, null)</em> pair for every record from left stream. Obviously, we don’t need this pairs in the output, but we can’t just filter them out - in this case we will get the same result as with inner join. Actually, I have tried different approaches to get rid of redundant records - but nothing have helped. So, finally, I’ve gave up and used just inner join.</p>
+<p>Also there were a lot of other pitfalls like suppressing aggregation windows, dealing with data deletion because of Kafka retention policy, setting up grace period for join windows, etc.</p>
+<p>As a result we have a topic with 214605 messages - it means that mapping with weather has been built for 2333 out of 2494 hotels.</p>
+<p><img src="images/kafka-streams-out.jpg" alt="application output"><br></p>
+<p>The source code of the application is published on <a href="https://github.com/NikitaTseu/epam-big-data-training/tree/main/kafka-streams">GitHub</a>.</p>
+</div>
+</body>
+
+</html>

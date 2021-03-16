@@ -1,0 +1,18 @@
+with 
+long_visits as (
+	select * from visits where datediff(srch_co, srch_ci) > 7
+)
+select 
+	long_visits.id as visit_id, 
+	avg(hotels.tmpr_c) over (partition by long_visits.id) as avg_tmpr,
+	last_value(hotels.tmpr_c) over (partition by long_visits.id order by hotels.date_full) -
+		first_value(hotels.tmpr_c) over (partition by long_visits.id order by hotels.date_full)	
+	as tmpr_diff
+from 
+	long_visits join hotels on (
+		    hotels.id = long_visits.hotel_id
+		and hotels.date_full >= long_visits.srch_ci
+		and hotels.date_full <= long_visits.srch_co
+	)
+limit 10;
+

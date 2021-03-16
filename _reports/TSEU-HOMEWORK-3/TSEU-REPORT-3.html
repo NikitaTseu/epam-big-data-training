@@ -1,0 +1,71 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TSEU-REPORT-3</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+</head>
+
+<body class="stackedit">
+  <div class="stackedit__html"><h2 id="tseu-nikita">TSEU NIKITA</h2>
+<p><strong>201 Big Data Mentoring Program Global 2021</strong><br>
+<strong><em>Homework 3</em></strong> – Data Flow, Pipelining</p>
+<h3 id="part-1---apache-nifi">Part 1 - Apache NiFi</h3>
+<ol>
+<li><strong>Deploy NiFi with Kubernetes</strong><br>
+This step was successfully performed according to given instructions. Here’s a screenshot of working docker containers with NiFi cluster.</li>
+</ol>
+<p><img src="images/nifi/nifi_containers.jpg" alt="docker containers"></p>
+<ol start="2">
+<li><strong>Complete HVAC tutorial</strong><br>
+In this tutorial our goal is to build data pipeline, which will receive zip archive with data via HTTP, unpack it  and finally put files with data to HDFS according do their names. Screenshot of ready to work pipeline is provided below.</li>
+</ol>
+<p><img src="images/nifi/pipeline_ready.jpg" alt="Pipeline ready"></p>
+<p>Actually, this tutorial assume that we have both HDFS and NiFi working on the same host, so they can easily communicate with each other. But in my case NiFi was deployed inside docker container, which provides us with independent environment, so I had to make some additional manipulations to establish the connection between NiFi and HDFS.</p>
+<blockquote>
+<ol>
+<li>
+<p>HDFS in my local computer is running on the <code>localhost:9000</code> according to the <code>core-site.xml</code> conf file. But the problem is that inside docker container we have its own loopback interface, so after copying  <code>core-site.xml</code> to the container we should change <code>localhost</code> in <code>core-site.xml</code> to the <code>host.docker.internal</code> address value (<code>192.168.65.2</code> in my case). <code>host.docker.internal</code> is the special address which is used to contact external services running on the host machine from the docker container.</p>
+</li>
+<li>
+<p>After receiving request from NiFi NameNode finds a DataNode which can be used for writing files, and this DataNode sends its IP address to NiFi. And here we face the same problem - in our case this address is private (<code>127.0.1.1</code>) so it is unreacheable from inside the docker container. According to Apache documentation in case of using multihomed networks we can configure DataNodes in such way that instead of sending their IP to clients, they now will send their hostname.</p>
+</li>
+<li>
+<p>After changing DataNodes configuration we should go to the docker container with NiFi and modify <code>/etc/hosts</code> file to perform DNS resolution of the DataNode hostname. This hostname should be mapped to the <code>host.docker.internal</code> address to contact the DataNode from inside the container.</p>
+</li>
+</ol>
+</blockquote>
+<ol start="3">
+<li><strong>Final result</strong><br>
+Here you can see the active pipeline and files stored in the HDFS.</li>
+</ol>
+<p><img src="images/nifi/pipeline_working.jpg" alt="Pipeline active"></p>
+<p><img src="images/nifi/proof.jpg" alt="Files in HDFS"></p>
+<h3 id="part-2---streamsets-data-collector">Part 2 - StreamSets Data Collector</h3>
+<p>As the starting point in this task we have five <code>.zip</code> files with csv data, representing hotels addresses and coordinates. The main goal is to create a data pipeline, which will read input data from HDFS, fill missing coordinates based on hotel’s address (if needed), then calculate geohash for every record and finally write output to kafka topic.</p>
+<ol>
+<li><strong>Pipeline schema</strong><br>
+So, the schema of the our pipeline will look like that:<br>
+<img src="images/sdc/pipeline_general.jpg" alt="Pipeline schema"><br>
+Here we hava <code>HDFS reader</code> as an origin - it unpacks input archives and parse data, creating separate records for every line in csv file. Then records go to the <code>Stream Selector</code> - this processor divides records into two streams depending on whether it is necessary to restore coordinates for input record. If coordinates are present, record immediately gets to the <code>Geohash Processor</code>, but if coordinates are missing, it first need to pass <code>Geocoding Processor</code>. <code>Geocoding Processor</code> is the custom processor written with Java API which can restore missing coordinates by known address or location. The only required parameter is API key for the OpenCage web service.<br>
+<img src="images/sdc/key.jpg" alt="Geocoding API key"><br>
+The next stage in pipeline is <code>Geohash Processor</code> - like the previous one, this processor is custom and it’s responsible for calculating geohash value by latitude and longitude. In setting you can set up geohash length (from 1 to 8 symbols).<br>
+<img src="images/sdc/length.jpg" alt="Geohash length"><br>
+Finally all records are written to kafka topic.</li>
+<li><strong>Running the Pipeline</strong><br>
+Let’s run our created Pipeline!<br>
+<code>HDFS reader</code> got almost 2494 records as input and 2494 records were written to kafka topic.<br>
+<img src="images/sdc/records_general.jpg" alt="Records count"><br>
+<img src="images/sdc/kafka.jpg" alt="Kafka output"><br>
+Also it’s interesting to take a look at the examples of <code>Geocoding Processor</code> and <code>Geohash Processor</code> work.<br>
+<img src="images/sdc/geocoding_example.jpg" alt="Geocoding example"><br>
+<img src="images/sdc/geohash_example.jpg" alt="Geohash example"></li>
+<li><strong>Source code for the custom processors</strong><br>
+Source code for the custom processors is published on <a href="https://github.com/NikitaTseu/epam-big-data-training/tree/main/geocoding">GitHub</a>. Also it’s available as src jar  in my zipped report.</li>
+</ol>
+</div>
+</body>
+
+</html>

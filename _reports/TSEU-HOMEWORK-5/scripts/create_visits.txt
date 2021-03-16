@@ -1,0 +1,9 @@
+CREATE EXTERNAL TABLE visits (
+		id bigint, date_time string, site_name int, posa_continent int, 
+		user_location_country int, user_location_region int, user_location_city int, 
+		orig_destination_distance double, user_id int, is_mobile int, is_package int, 
+		channel int, srch_ci string, srch_co string, srch_adults_cnt int, srch_children_cnt int, 
+		srch_rm_cnt int, srch_destination_id int, srch_destination_type_id int, hotel_id bigint,
+		year_in int, month_in int, day_in int, year_out int, month_out int, day_out int)
+	PARTITIONED BY 
+		(sbm_year int, sbm_month int);

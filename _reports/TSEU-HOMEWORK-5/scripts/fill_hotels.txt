@@ -1,0 +1,10 @@
+INSERT INTO TABLE hotels 
+	PARTITION (
+		date_year, date_month)
+	SELECT 
+		id, name, country, city, latitude, longitude, geohash,
+		`date`, day(`date`), avgtemperaturef,
+		avgtemperaturec, year(`date`), month(`date`) 
+	FROM 
+		hotels_from_kafka; 
+

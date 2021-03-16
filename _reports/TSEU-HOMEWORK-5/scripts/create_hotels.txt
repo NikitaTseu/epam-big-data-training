@@ -1,0 +1,6 @@
+CREATE EXTERNAL TABLE hotels (
+		id string, name string, country string, city string, lat string, lng string, 
+		geohash string, date_full string, date_day int, tmpr_f double, tmpr_c double)
+	PARTITIONED BY 
+		(date_year int, date_month int);
+		

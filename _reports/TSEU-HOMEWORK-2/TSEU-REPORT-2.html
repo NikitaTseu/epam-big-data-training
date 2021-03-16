@@ -1,0 +1,60 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TSEU-REPORT-2</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+</head>
+
+<body class="stackedit">
+  <div class="stackedit__html"><h2 id="tseu-nikita">TSEU NIKITA</h2>
+<p><strong>201 Big Data Mentoring Program Global 2021</strong><br>
+<strong><em>Homework 2</em></strong> – HDFS</p>
+<ol>
+<li><strong>Put datasets in HDFS system</strong><br>
+This can be done in a fairly simple way - just with <code>hdfs dfs -put &lt;from&gt; &lt;to&gt;</code> command. Below you can see some screenshots which proof files presence in HDFS.</li>
+</ol>
+<p><img src="images/hdfs_datasets.jpg" alt="Datasets in HDFS"></p>
+<ol start="2">
+<li><strong>Receive schema from Avro files</strong><br>
+It is convenient to use Avro Tools, which provides us with a CLI interface to get a schema from Avro files.</li>
+</ol>
+<p><img src="images/avro_schema.jpg" alt="Avro schema"></p>
+<ol start="3">
+<li><strong>Receive schema from Parquet files</strong><br>
+This task is done in the same way as the previous one but with Parquet Tools.</li>
+</ol>
+<p><img src="images/parquet_schema.jpg" alt="Parquet schema"></p>
+<ol start="4">
+<li><strong>Collect rows count in Avro dataset using shell scripting and Avro Tools</strong><br>
+Below you can see the code of the script I wrote and the result of its work.</li>
+</ol>
+<pre class=" language-bash"><code class="prism  language-bash"><span class="token shebang important">#!/bin/sh</span>
+
+<span class="token comment"># This script counts the number of records in avro files</span>
+<span class="token comment"># in a specific HDFS directory (passed as command line argument)</span>
+
+RECORDS_TOTAL<span class="token operator">=</span>0
+RECORDS_IN_FILE<span class="token operator">=</span>0
+FILE_COUNTER<span class="token operator">=</span>0
+
+<span class="token keyword">for</span> ENTRY <span class="token keyword">in</span> `hdfs dfs -ls <span class="token string">"<span class="token variable">$1</span>"</span>`
+<span class="token keyword">do</span>
+  <span class="token keyword">if</span> <span class="token punctuation">[</span> <span class="token string">"<span class="token variable">${ENTRY: -5}</span>"</span> <span class="token operator">==</span> <span class="token string">".avro"</span> <span class="token punctuation">]</span><span class="token punctuation">;</span> <span class="token keyword">then</span>
+    RECORDS_IN_FILE<span class="token operator">=</span>`hadoop jar ~/avro/avro-tools-1.10.1.jar count <span class="token string">"<span class="token variable">$ENTRY</span>"</span><span class="token variable"><span class="token variable">`</span>
+    RECORDS_TOTAL<span class="token operator">=</span><span class="token variable">`</span></span><span class="token function">expr</span> <span class="token variable">$RECORDS_TOTAL</span> + <span class="token variable">$RECORDS_IN_FILE</span><span class="token variable"><span class="token variable">`</span>
+	
+	FILE_COUNTER<span class="token operator">=</span><span class="token variable">`</span></span><span class="token function">expr</span> <span class="token variable">$FILE_COUNTER</span> + 1`
+	<span class="token keyword">echo</span> <span class="token string">"<span class="token variable">$FILE_COUNTER</span>"</span> files processed<span class="token punctuation">..</span>.
+  <span class="token keyword">fi</span>
+<span class="token keyword">done</span>
+
+<span class="token keyword">echo</span> Avro files <span class="token keyword">in</span> the specified directory contain <span class="token string">"<span class="token variable">$RECORDS_TOTAL</span>"</span> records
+</code></pre>
+<p><img src="images/avro_records.jpg" alt="Records count"></p>
+</div>
+</body>
+
+</html>

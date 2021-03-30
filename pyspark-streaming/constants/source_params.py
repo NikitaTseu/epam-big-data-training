@@ -1,0 +1,7 @@
+KAFKA_SERVERS = 'localhost:9092'
+KAFKA_TOPIC_WEATHER = 'hotels-with-weather'
+PATH_TO_EXPEDIA = 'hdfs://localhost:9000/datasets/streaming/expedia/'
+OUTPUT_PATH = 'hdfs://localhost:9000/datasets/streaming/expedia_out/'
+INITIAL_STATE_STORAGE = 'hdfs://localhost:9000/datasets/initial_state/'
+BOOKING_DATA_PATH = 'hdfs://localhost:9000/datasets/expedia_valid/'
+CHECKPOINT_LOCATION = 'hdfs://localhost:9000/datasets/checkpoints/'

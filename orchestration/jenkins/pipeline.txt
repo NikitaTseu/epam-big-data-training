@@ -1,0 +1,42 @@
+pipeline {
+    agent {
+        node {
+            label 'master'
+            customWorkspace params.ProjectPath
+        } 
+    }
+    
+    parameters {
+        string(
+            name: 'ProjectPath', 
+            defaultValue: '/mnt/c/projects/epam-big-data-training/spark-batch', 
+            description: 'Project path'
+        )
+        
+        choice (
+            name: 'RunTests',
+            choices: ['RUN TESTS', 'SKIP TESTS'],
+            description: 'Do you want to run the tests?'
+        )
+    }
+    
+    tools { 
+        maven 'Maven'
+    }
+    
+    stages {
+        stage('Build') {
+            steps {
+                sh 'mvn -DskipTests clean install'
+            }
+        }
+        stage('Test') {
+            when {
+                expression { params.RunTests == 'RUN TESTS' }
+            }
+            steps {
+                sh 'mvn test'
+            }
+        }
+    }
+}
